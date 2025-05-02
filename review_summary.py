@@ -9,32 +9,27 @@ class ReviewFetcher():
     def __init__(self, search_name):
         self.search_name = search_name
 
-    def find_and_review(self):
-        for movie_title, review_url in self.find_movie():
-            if movie_title == "NONE FOUND":
-                return ("No movies found with that search term.", None)
-            if movie_title == "ENDLIST":
-                return ("No more movies found with that search term.", None)
-            return (movie_title, self.get_reviews(review_url))
-        
-    
-    def find_movie(self):    
+    def find_and_review(self, order=0):
+
         movie_name = (self.search_name).replace(" ", "%20")
         url = f"https://www.rottentomatoes.com/search?search={movie_name}"
         strainer = SoupStrainer("search-page-media-row")
         raw_html = (requests.get(url)).content
         soup = BeautifulSoup(raw_html, "html.parser", parse_only=strainer)
         search_results = soup.find_all(attrs={"slot":"title"})
-        
-        if search_results == []:
-            return ("NONE FOUND", None)
 
-        for result in search_results:
-            movie_title = result.get_text(strip=True)
-            reviews_url = result.attrs["href"]+"/reviews"
-            yield movie_title, reviews_url
+        if len(search_results) == 0:
+            return ("No movies found with that name.", (None,None))
+        if order>=len(search_results):
+            return ("End of search results.", (None,None))
+
+        result = search_results[order]
+        movie_title = result.get_text(strip=True)
+        reviews_url = result.attrs["href"]+"/reviews"
+        positive_list, negative_list = self.get_reviews(reviews_url)
         
-        return ("ENDLIST", None)
+        return (movie_title, (positive_list, negative_list))
+        
 
     def get_reviews(self, url):
         raw_html = (requests.get(url)).content
@@ -85,11 +80,14 @@ class ReviewSummarizer():
 
 
 
-search_name = "oierhoihgo"
+search_name = "The Room"
 review_fetch_obj = ReviewFetcher(search_name)
 movie_title, (positive_list, negative_list) = review_fetch_obj.find_and_review()
 
+if not positive_list==None:
+    review_smmrz_obj = ReviewSummarizer()
+    positive_summ, negative_summ = review_smmrz_obj("positive", positive_list), review_smmrz_obj("negative", negative_list)
+else:
+    print(movie_title)
 
-review_smmrz_obj = ReviewSummarizer()
-positive_summ = review_smmrz_obj("positive", positive_list)
-negative_summ = review_smmrz_obj("negative", negative_list)
+
