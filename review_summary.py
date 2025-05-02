@@ -56,7 +56,8 @@ class ReviewSummarizer():
                                                                     "You will summarize those reviews."
                                                                     "You will be brief, but will emphasize all the specific adjectives and descriptors."
                                                                     "You will pay special attention to aspects that recur across reviews."
-                                                                    "Your response will emphasize the {sentiment} aspect in he rviews.")),
+                                                                    "Your response will emphasize the {sentiment} aspect in he rviews."
+                                                                    "Your response will start with '{sentiment} reviews note' etc. ")),
                 SystemMessagePromptTemplate.from_template(template="Here you will find the list of {sentiment} reviews: {list}"),
                 HumanMessagePromptTemplate.from_template(template="Please summarize the reviews based on the criteria you received.")
 
@@ -79,15 +80,15 @@ class ReviewSummarizer():
 
 
 
+if __name__ == "__main__":
+    search_name = "Mulholland Drive"
+    review_fetch_obj = ReviewFetcher(search_name)
+    movie_title, (positive_list, negative_list) = review_fetch_obj.find_and_review()
 
-search_name = "The Room"
-review_fetch_obj = ReviewFetcher(search_name)
-movie_title, (positive_list, negative_list) = review_fetch_obj.find_and_review()
-
-if not positive_list==None:
-    review_smmrz_obj = ReviewSummarizer()
-    positive_summ, negative_summ = review_smmrz_obj("positive", positive_list), review_smmrz_obj("negative", negative_list)
-else:
-    print(movie_title)
+    if not positive_list==None:
+        review_smmrz_obj = ReviewSummarizer()
+        positive_summ, negative_summ = review_smmrz_obj("positive", positive_list), review_smmrz_obj("negative", negative_list)
+    else:
+        print(movie_title)
 
 
