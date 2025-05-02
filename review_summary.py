@@ -88,6 +88,8 @@ if __name__ == "__main__":
     if not positive_list==None:
         review_smmrz_obj = ReviewSummarizer()
         positive_summ, negative_summ = review_smmrz_obj("positive", positive_list), review_smmrz_obj("negative", negative_list)
+        print(positive_summ)
+        print(negative_summ)
     else:
         print(movie_title)
 
