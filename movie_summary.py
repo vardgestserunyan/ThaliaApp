@@ -28,13 +28,13 @@ class MovieSummarizer():
     
     def __call__(self, movie_name: str) -> str:
         """
-            Calling an instance of MovieSummarizer class present 
+            Calling an instance of MovieSummarizer class present
         """
         prompt_val = (self.prompt).invoke({"movie_name":movie_name})
         llm_response = (self.llm).invoke(prompt_val)
         output_raw = llm_response.content
         output_raw = output_raw.split('.')
-        output_final = ".".join(output_raw) if output_raw[-1] == "" else ".".join(output_raw[:-1])
+        output_final = ". ".join(output_raw) if output_raw[-1] == "" else ". ".join(output_raw[:-1])
         if len(output_final) > 0:
             return output_final
         else:
