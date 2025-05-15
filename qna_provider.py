@@ -1,66 +1,82 @@
 from bs4 import BeautifulSoup, SoupStrainer
-from langchain_text_splitters import RecursiveCharacterTextSplitter
+from langchain_text_splitters import HTMLSectionSplitter
 from langchain_openai import OpenAIEmbeddings, ChatOpenAI
 from langchain_core.vectorstores import InMemoryVectorStore
 from langchain_core.prompts import HumanMessagePromptTemplate, ChatPromptTemplate, SystemMessagePromptTemplate
+from langchain_community.document_loaders import WebBaseLoader
 import requests
 
+class RetrieverIMDB:
+    def __init__(self, search_name):
+        self.search_name = search_name.replace(" ", "%20")
+        self.search_titles = self.imdb_searcher()
 
-search_name, order, question = "Mulholland Drive", 0, "Who's the writer?"
-search_name = search_name.replace(" ", "%20")
-headers={'User-Agent':'Mozilla/5.0 (Windows NT 6.3; Win 64 ; x64) Apple WeKit /537.36(KHTML , like Gecko) Chrome/80.0.3987.162 Safari/537.36'}
-search_url = f"https://www.imdb.com/find/?q={search_name}"
-raw_html = (requests.get(search_url, headers=headers)).content
-strainer = SoupStrainer(class_="sc-31dae308-2 jtgVzb")
-soup = BeautifulSoup(raw_html, "html.parser", parse_only=strainer)
-search_titles = soup.find_all(class_="ipc-metadata-list-summary-item__t")
-search_item = search_titles[order]
-movie_name = search_item.get_text()
-movie_page = (search_item.attrs).get("href")
-movie_url = f"https://www.imdb.com{movie_page}"
+    def imdb_searcher(self):
+        headers={'User-Agent':'Mozilla/5.0 (Windows NT 6.3; Win 64 ; x64) Apple WeKit /537.36(KHTML , like Gecko) Chrome/80.0.3987.162 Safari/537.36'}
+        search_url = f"https://www.imdb.com/find/?q={self.search_name}"
+        raw_html = (requests.get(search_url, headers=headers)).content
+        strainer = SoupStrainer(class_="sc-31dae308-2 jtgVzb")
+        soup = BeautifulSoup(raw_html, "html.parser", parse_only=strainer)
+        search_titles = soup.find_all(class_="ipc-metadata-list-summary-item__t")
+        
+        return search_titles
+
+    def url_retriever(self, order=0):
+        search_item = self.search_titles[order]
+        movie_name = search_item.get_text()
+        movie_page = (search_item.attrs).get("href")
+        movie_url = f"https://www.imdb.com{movie_page}"
+
+        return movie_url
+
+class QuestionAnswerer:
+    def __init__(self, embed_model="text-embedding-3-small", chat_model="gpt-4.1-nano-2025-04-14"):
+        self.embed_model = OpenAIEmbeddings(model=embed_model, dimensions=32)
+        self.chat_model = ChatOpenAI(model=chat_model, temperature=0.2, max_tokens=64)
+        self.splitter = HTMLSectionSplitter(headers_to_split_on=[("section","section"), ("li","list")], 
+                                            max_chunk_size=1000, chunk_overlap=100)
+        self.vector_store = self.knowledge_extractor()
+        self.sys_msgs = [SystemMessagePromptTemplate.from_template(("You will answer a question about a movie. "
+                                                                    "For help, you will receive the name of the movie "
+                                                                        "and relevant contextual information in two pieces."
+                                                                    "Your answer will be concise and to the point. "
+                                                                    "If you cannot find the information in your knowledge base "
+                                                                        "or in the context, you will say 'I don't know'. "
+                                                                    "If the question is not relevant to the query, " 
+                                                                        "say 'I don't think that's relevant'. ")),
+                         SystemMessagePromptTemplate.from_template("The name of the movie is {movie_name}"),
+                         SystemMessagePromptTemplate.from_template("This is contextual information, Chunk 1: \n {context_chunk_1} "),
+                         SystemMessagePromptTemplate.from_template("This is contextual information, Chunk 1: \n {context_chunk_2} ") ]
+
+    def knowledge_extractor(self):
+        sections = ["UserReviews", "awards", "title-cast", "title-cast-item", "title-details-header",
+                    "MoreLikeThis", "DidYouKnow", "faq-content", "Details", "BoxOffice","TechSpecs"]
+        strainer = SoupStrainer(attrs={"data-testid":sections})
+        raw_html = (requests.get(movie_url,headers=headers)).content
+        webpage_soup = BeautifulSoup(raw_html, "html.parser", parse_only=strainer)
+        knowledge_base = webpage_soup.find_all(["section", "li"],attrs={"data-testid":sections})
+        knowledge_base = [html_chunk.prettify() for html_chunk in knowledge_base]
+        knowledge_base = "\n".join(knowledge_base)
+        knowledge_base = (self.splitter).split_text(knowledge_base)
+        vector_store = InMemoryVectorStore(self.embed_model)
+        vector_store.add_documents(knowledge_base)
+
+        return vector_store
 
 
-info_sections = ["atf--bg", "awards","title-cast", 
-                 "UserReviews", "MoreLikeThis","DidYouKnow",
-                 "faq-content","Details","BoxOffice", "TechSpecs","News"]
-strainer = SoupStrainer(role="main")
+    def __call__(self, question):
+        retrieved_info = (self.vector_store).similarity_search(query=question, k=2)
+        context_chunk_1, context_chunk_2 = retrieved_info[0], retrieved_info[1]
+        full_msg = self.sys_msgs + HumanMessagePromptTemplate.from_template("{question}")
+        prompt = ChatPromptTemplate.from_messages(full_msg)
+        prompt_val = prompt.invoke({"movie_name": movie_name, "context_chunk_1": context_chunk_1, 
+                                    "context_chunk_2": context_chunk_2, "question": question})
+        llm_response = (self.chat_model).invoke(prompt_val)
 
-raw_html = (requests.get(movie_url, headers=headers)).content
-parsed_soup = BeautifulSoup(raw_html, "html.parser", parse_only=strainer)
-parsed_info_list = [ parsed_soup.find(attrs={"data-testid":split_id}) for split_id in info_sections ]
-parsed_info_list = [ parsed_tag.get_text(separator="\t") for parsed_tag in parsed_info_list if parsed_tag]
-info_base = "\n\n".join(parsed_info_list)
-
-splitter = RecursiveCharacterTextSplitter(separators=["\n\n"], chunk_size=500, chunk_overlap=10)
-split_text = splitter.split_text(info_base)
-
-
-llm_emb = OpenAIEmbeddings(model="text-embedding-3-small",
-                           dimensions=64)
-vector_store = InMemoryVectorStore(llm_emb)
-vector_store.add_texts(split_text)
-context = (vector_store.similarity_search(question,k=1))[0]
-
-
-msgs = [ SystemMessagePromptTemplate.from_template(("Answer the following question based on the context information retrieved."
-                                                    "In doing this, be mindful of the fact that the information is parsed from IMDB."
-                                                    "As such, it might not be ccleanly parsed, so base the final answer on the document..."
-                                                    "... as well as your prior knowledge."
-                                                    "Be concise and informative, and if you aren't sure, just say 'I don't know'.")),
-          SystemMessagePromptTemplate.from_template("Here is the context from IMDB: {context}"),
-          HumanMessagePromptTemplate.from_template("{question}")  ]
-
-prompt = ChatPromptTemplate.from_messages(msgs)
-prompt_val = prompt.invoke({"context":context, "question":question})
-
-llm = ChatOpenAI(model="gpt-4.1-nano-2025-04-14", temperature=0.2, max_tokens=64)
-result = (llm.invoke(prompt_val)).content
+        return llm_response.content
 
 
 
 
-
-# Got the info base -- now proceeed to making the vector DB and making a RAG
-# No need to parse the webpage -- WebBaseLoader does it already!
-# join method
-info_base_list[0].contents
+if __name__ == "__main__":
+    pass
