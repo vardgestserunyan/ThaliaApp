@@ -8,9 +8,9 @@ import requests
 class ReviewFetcher():
     def __init__(self, search_name):
         self.search_name = search_name
+        self.search_results = self.movie_search()
 
-    def find_and_review(self, order=0):
-
+    def movie_search(self):
         movie_name = (self.search_name).replace(" ", "%20")
         url = f"https://www.rottentomatoes.com/search?search={movie_name}"
         strainer = SoupStrainer("search-page-media-row")
@@ -18,12 +18,15 @@ class ReviewFetcher():
         soup = BeautifulSoup(raw_html, "html.parser", parse_only=strainer)
         search_results = soup.find_all(attrs={"slot":"title"})
 
-        if len(search_results) == 0:
+        return search_results
+
+    def find_and_review(self, order=0):
+        if len(self.search_results) == 0:
             return ("No movies found with that name.", (None,None))
-        if order>=len(search_results):
+        if order>=len(self.search_results):
             return ("End of search results.", (None,None))
 
-        result = search_results[order]
+        result = self.search_results[order]
         movie_title = result.get_text(strip=True)
         reviews_url = result.attrs["href"]+"/reviews"
         positive_list, negative_list = self.get_reviews(reviews_url)
